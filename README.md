@@ -1,3 +1,5 @@
+以下是原版README，除「」内的内容是我添加的，其它均为改动
+
 Mr.LDA
 =======
 
@@ -12,7 +14,7 @@ Getting Started
 Clone the repo:
 
 ```
-$ git clone git@github.com:lintool/Mr.LDA.git
+$ git clone git@github.com:lintool/Mr.LDA.git 「这里使用本工程地址：http://gitlab.baidu.com/liuweiwei02/Mr.LDA.git」
 ```
 
 Then build using the standard invocation:
@@ -382,4 +384,3 @@ To display the hyper-parameters, access alpha-\* file using following command
     hadoop jar Mr.LDA.jar edu.umd.cloud9.io.ReadSequenceFile /path/to/alpha-*
 
 You may refer to -help options for further information.
-
