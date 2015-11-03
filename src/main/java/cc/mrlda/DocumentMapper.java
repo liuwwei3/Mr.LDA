@@ -69,6 +69,8 @@ public class DocumentMapper extends MapReduceBase implements
   private Iterator<Integer> itr = null;
 
   public void configure(JobConf conf) {
+
+    System.out.println("now configuring ...");
     configurationTime = System.currentTimeMillis();
 
     numberOfTerms = conf.getInt(Settings.PROPERTY_PREFIX + "corpus.terms", Integer.MAX_VALUE);
@@ -105,18 +107,21 @@ public class DocumentMapper extends MapReduceBase implements
       if (inputFiles != null) {
         for (Path path : inputFiles) {
           try {
+            System.out.println("checking file: "+path.getName());
             sequenceFileReader = new SequenceFile.Reader(FileSystem.getLocal(conf), path, conf);
 
-            if (path.getName().startsWith(Settings.BETA)) {
+            if (path.getName().contains(Settings.BETA)) {
               // TODO: check whether seeded beta is valid, i.e., a true probability distribution
               Preconditions.checkArgument(expectLogBeta == null,
                   "Beta matrix was initialized already...");
+              System.out.println("initializing expectLogBeta ...");
               // beta = importBeta(sequenceFileReader, numberOfTopics, numberOfTerms,
               // approximateBeta);
               expectLogBeta = importBeta(sequenceFileReader, numberOfTopics, numberOfTerms);
-            } else if (path.getName().startsWith(Settings.ALPHA)) {
+            } else if (path.getName().contains(Settings.ALPHA)) {
               Preconditions.checkArgument(alpha == null, "Alpha vector was initialized already...");
               // TODO: check the validity of alpha
+              System.out.println("initializing alpha ...");
               alpha = VariationalInference.importAlpha(sequenceFileReader, numberOfTopics);
               double sumLnGammaAlpha = 0;
               for (double value : alpha) {
@@ -124,17 +129,18 @@ public class DocumentMapper extends MapReduceBase implements
                 alphaSum += value;
               }
               likelihoodAlpha = Gamma.lngamma(alphaSum) - sumLnGammaAlpha;
-            } else if (path.getName().startsWith(InformedPrior.ETA)) {
+            } else if (path.getName().contains(InformedPrior.ETA)) {
               // beta = parseEta(sequenceFileReader, numberOfTopics);
               continue;
             } else {
               throw new IllegalArgumentException("Unexpected file in distributed cache: "
                   + path.getName());
             }
-          } catch (IllegalArgumentException iae) {
-            iae.printStackTrace();
-          } catch (IOException ioe) {
-            ioe.printStackTrace();
+          //} catch (IllegalArgumentException iae) {
+          //  iae.printStackTrace();
+          } catch (Exception ioe) {
+              continue;
+              //ioe.printStackTrace();
           } finally {
             IOUtils.closeStream(sequenceFileReader);
           }
@@ -174,9 +180,12 @@ public class DocumentMapper extends MapReduceBase implements
   @SuppressWarnings("deprecation")
   public void map(IntWritable key, Document value,
       OutputCollector<PairOfInts, DoubleWritable> output, Reporter reporter) throws IOException {
+    System.out.println("now mapping ...");
     reporter.incrCounter(ParameterCounter.CONFIG_TIME, configurationTime);
     reporter.incrCounter(ParameterCounter.TOTAL_DOCS, 1);
     trainingTime = System.currentTimeMillis();
+    System.out.println("assigning outputCollector: "+output);
+    outputCollector = output;
 
     double likelihoodPhi = 0;
 
@@ -258,7 +267,6 @@ public class DocumentMapper extends MapReduceBase implements
       totalAlphaSufficientStatistics[i] += Gamma.digamma(tempGamma[i]) - digammaSumGamma;
     }
 
-    outputCollector = output;
 
     if (!directEmit) {
       if (learning) {
@@ -350,12 +358,18 @@ public class DocumentMapper extends MapReduceBase implements
   }
 
   public void close() throws IOException {
+    System.out.println("now closeing ...");
+    if (outputCollector == null){
+        System.out.println("outputCollector is null ... ");
+        return;
+    }
     if (learning) {
       for (int i = 0; i < numberOfTopics; i++) {
         // a *zero* topic index and a *positive* topic index indicates the output is a term for
         // alpha updating
         outputKey.set(0, i + 1);
         outputValue.set(totalAlphaSufficientStatistics[i]);
+        System.out.println("Topic "+i+" is OK before outputCollection!");
         outputCollector.collect(outputKey, outputValue);
         totalAlphaSufficientStatistics[i] = 0;
       }
@@ -431,7 +445,7 @@ public class DocumentMapper extends MapReduceBase implements
   /**
    * Retrieve the beta array given the beta map and term index. If {@code beta} is null or
    * {@code termID} was not found in {@code beta}, this method will pop a message to
-   * {@link System.out} and initialize it to avoid duplicate initialization in the future.
+   * {@lioutSystem.out} and initialize it to avoid duplicate initialization in the future.
    * 
    * @param numberOfTopics number of topics defined by the current latent Dirichlet allocation
    *        model.

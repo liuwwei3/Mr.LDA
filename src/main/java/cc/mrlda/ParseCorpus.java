@@ -64,7 +64,7 @@ public class ParseCorpus extends Configured implements Tool {
   static final Logger sLogger = Logger.getLogger(ParseCorpus.class);
 
   protected static enum MyCounter {
-    TOTAL_DOCS, TOTAL_TERMS, LOW_DOCUMENT_FREQUENCY_TERMS, HIGH_DOCUMENT_FREQUENCY_TERMS, LEFT_OVER_TERMS, LEFT_OVER_DOCUMENTS, COLLAPSED_DOCUMENTS,
+    TOTAL_DOCS, TOTAL_TERMS, LOW_DOCUMENT_FREQUENCY_TERMS, HIGH_DOCUMENT_FREQUENCY_TERMS, LEFT_OVER_TERMS, LEFT_OVER_DOCUMENTS, COLLAPSED_DOCUMENTS, ERROR_INFO,
   }
 
   public static final String DOCUMENT = "document";
@@ -134,7 +134,8 @@ public class ParseCorpus extends Configured implements Tool {
 
       Path documentPath = indexDocument(configuration, documentGlobString, documentString,
           termIndexPath.toString(), titleIndexPath.toString(), numberOfMappers);
-    } finally {
+    } catch(Exception e) {
+      e.printStackTrace();
       fs.delete(new Path(indexPath), true);
     }
 
@@ -166,6 +167,7 @@ public class ParseCorpus extends Configured implements Tool {
     @SuppressWarnings("deprecation")
     public void map(LongWritable key, Text value, OutputCollector<Text, PairOfInts> output,
         Reporter reporter) throws IOException {
+      System.out.println("now mapping ...");
       if (outputDocument == null) {
         outputDocument = multipleOutputs.getCollector(DOCUMENT, DOCUMENT, reporter);
         outputTitle = multipleOutputs.getCollector(TITLE, TITLE, reporter);
@@ -221,6 +223,7 @@ public class ParseCorpus extends Configured implements Tool {
     }
 
     public void configure(JobConf conf) {
+      System.out.println("now configureing ...");
       multipleOutputs = new MultipleOutputs(conf);
 
       try {
@@ -294,6 +297,7 @@ public class ParseCorpus extends Configured implements Tool {
     }
 
     public void close() throws IOException {
+      System.out.println("now closing ...");  
       // analyzer.close();
       multipleOutputs.close();
     }
@@ -305,6 +309,7 @@ public class ParseCorpus extends Configured implements Tool {
 
     public void reduce(Text key, Iterator<PairOfInts> values,
         OutputCollector<Text, PairOfInts> output, Reporter reporter) throws IOException {
+      System.out.println("now reducing ...");  
       int documentFrequency = 0;
       int termFrequency = 0;
 
@@ -325,6 +330,7 @@ public class ParseCorpus extends Configured implements Tool {
 
     public void reduce(Text key, Iterator<PairOfInts> values,
         OutputCollector<Text, PairOfInts> output, Reporter reporter) throws IOException {
+      System.out.println("now reducing ...");  
       int documentFrequency = 0;
       int termFrequency = 0;
 
@@ -394,17 +400,27 @@ public class ParseCorpus extends Configured implements Tool {
     FileOutputFormat.setCompressOutput(conf, true);
 
     long startTime = System.currentTimeMillis();
-    RunningJob job = JobClient.runJob(conf);
-    sLogger.info("Job Finished in " + (System.currentTimeMillis() - startTime) / 1000.0
+    JobClient jobclient = new JobClient(conf);
+    RunningJob job = jobclient.submitJob(conf);
+    sLogger.info("Job Tokenization Tracking: " + job.getTrackingURL());
+    // add by liuweiwei02, for error "the client is stoped!"
+    job.waitForCompletion();
+
+    if (job.isSuccessful()){
+      sLogger.info("Job Success and Finished in " + (System.currentTimeMillis() - startTime) / 1000.0
         + " seconds");
+    } else {
+      sLogger.info("Job Failed, see: " + job.getTrackingURL());
+    }
+      
 
     Counters counters = job.getCounters();
     int[] corpusStatistics = new int[2];
 
-    corpusStatistics[0] = (int) counters.findCounter(MyCounter.TOTAL_DOCS).getCounter();
+    corpusStatistics[0] = (int) counters.getCounter(MyCounter.TOTAL_DOCS);
     sLogger.info("Total number of documents is: " + corpusStatistics[0]);
 
-    corpusStatistics[1] = (int) counters.findCounter(MyCounter.TOTAL_TERMS).getCounter();
+    corpusStatistics[1] = (int) counters.getCounter(MyCounter.TOTAL_TERMS);
     sLogger.info("Total number of terms is: " + corpusStatistics[1]);
 
     return corpusStatistics;
@@ -454,6 +470,7 @@ public class ParseCorpus extends Configured implements Tool {
     @SuppressWarnings("deprecation")
     public void map(Text key, PairOfInts value, OutputCollector<PairOfInts, Text> output,
         Reporter reporter) throws IOException {
+      System.out.println("now mapping ...");  
       if (value.getLeftElement() < minimumDocumentCount) {
         reporter.incrCounter(MyCounter.LOW_DOCUMENT_FREQUENCY_TERMS, 1);
         return;
@@ -467,6 +484,7 @@ public class ParseCorpus extends Configured implements Tool {
     }
 
     public void configure(JobConf conf) {
+      System.out.println("now configureing ...");
       minimumDocumentCount = conf.getFloat("corpus.minimum.document.count", 0);
       maximumDocumentCount = conf.getFloat("corpus.maximum.document.count", Float.MAX_VALUE);
     }
@@ -480,6 +498,7 @@ public class ParseCorpus extends Configured implements Tool {
     @SuppressWarnings("deprecation")
     public void reduce(PairOfInts key, Iterator<Text> values,
         OutputCollector<IntWritable, Text> output, Reporter reporter) throws IOException {
+      System.out.println("now reducing ...");  
       while (values.hasNext()) {
         index++;
         intWritable.set(index);
@@ -534,23 +553,33 @@ public class ParseCorpus extends Configured implements Tool {
 
     try {
       long startTime = System.currentTimeMillis();
-      RunningJob job = JobClient.runJob(conf);
-      sLogger.info("Job Finished in " + (System.currentTimeMillis() - startTime) / 1000.0
+      JobClient jobclient = new JobClient(conf);
+      RunningJob job = jobclient.submitJob(conf);
+      sLogger.info("Job IndexTerm Tracking: " + job.getTrackingURL());
+      // add by liuweiwei02, for error "the client is stoped!"
+      job.waitForCompletion();
+      
+      if (job.isSuccessful()){
+        sLogger.info("Job Finished in " + (System.currentTimeMillis() - startTime) / 1000.0
           + " seconds");
+      } else {
+        sLogger.info("Job Failed, see: " + job.getTrackingURL());
+      }
 
+      
       fs.rename(new Path(outputString + Path.SEPARATOR + "part-00000"), outputTermFile);
       sLogger.info("Successfully index all the terms at " + outputTermFile);
 
       Counters counters = job.getCounters();
-      int lowDocumentFrequencyTerms = (int) counters.findCounter(
-          MyCounter.LOW_DOCUMENT_FREQUENCY_TERMS).getCounter();
+      int lowDocumentFrequencyTerms = (int) counters.getCounter(
+          MyCounter.LOW_DOCUMENT_FREQUENCY_TERMS);
       sLogger.info("Removed " + lowDocumentFrequencyTerms + " low frequency terms.");
 
-      int highDocumentFrequencyTerms = (int) counters.findCounter(
-          MyCounter.HIGH_DOCUMENT_FREQUENCY_TERMS).getCounter();
+      int highDocumentFrequencyTerms = (int) counters.getCounter(
+          MyCounter.HIGH_DOCUMENT_FREQUENCY_TERMS);
       sLogger.info("Removed " + highDocumentFrequencyTerms + " high frequency terms.");
 
-      int leftOverTerms = (int) counters.findCounter(MyCounter.LEFT_OVER_TERMS).getCounter();
+      int leftOverTerms = (int) counters.getCounter(MyCounter.LEFT_OVER_TERMS);
       sLogger.info("Total number of left-over terms: " + leftOverTerms);
     } finally {
       fs.delete(outputPath, true);
@@ -574,6 +603,11 @@ public class ParseCorpus extends Configured implements Tool {
     @SuppressWarnings("deprecation")
     public void map(Text key, HMapSIW value, OutputCollector<IntWritable, Document> output,
         Reporter reporter) throws IOException {
+      System.out.println("now mapping ...");  
+      if (titleIndex == null){
+          System.out.println("titleIndex is null ...");  
+          return;
+      }
       Preconditions.checkArgument(titleIndex.containsKey(key.toString()),
           "How embarrassing! Could not find title " + key.toString() + " in index...");
       content.clear();
@@ -597,6 +631,7 @@ public class ParseCorpus extends Configured implements Tool {
     }
 
     public void configure(JobConf conf) {
+      System.out.println("now configureing ...");
       SequenceFile.Reader sequenceFileReader = null;
       try {
         Path[] inputFiles = DistributedCache.getLocalCacheFiles(conf);
@@ -605,30 +640,38 @@ public class ParseCorpus extends Configured implements Tool {
           for (Path path : inputFiles) {
             try {
               sLogger.info("Checking file in distributed cache: " + path.getName());
+              if (path.getName().endsWith("job.xml")){
+                System.out.println("It is job.xml, continuing ... ");
+                continue;
+              }
               sequenceFileReader = new SequenceFile.Reader(FileSystem.getLocal(conf), path, conf);
 
-              if (path.getName().startsWith(TERM)) {
+              if (path.getName().endsWith(TERM)) {
                 Preconditions.checkArgument(termIndex == null,
                     "Term index was initialized already...");
+                System.out.println("initializing termIndex ... ");
                 termIndex = ParseCorpus.importParameter(sequenceFileReader);
                 // sLogger.info("Term index parameter imported as: " + path);
-              } else if (path.getName().startsWith(TITLE)) {
+              } else if (path.getName().endsWith(TITLE)) {
                 Preconditions.checkArgument(titleIndex == null,
                     "Title index was initialized already...");
+                System.out.println("initializing titleIndex ... ");
                 titleIndex = ParseCorpus.importParameter(sequenceFileReader);
                 // sLogger.info("Title index parameter imported as: " + path);
               } else {
                 throw new IllegalArgumentException("Unexpected file in distributed cache: "
                     + path.getName());
               }
-            } catch (IllegalArgumentException iae) {
-              iae.printStackTrace();
-            } catch (IOException ioe) {
-              ioe.printStackTrace();
+            //} catch (IllegalArgumentException iae) {
+            //  iae.printStackTrace();
+            } catch (Exception ioe) {
+                ioe.printStackTrace();
+                continue;
+                //ioe.printStackTrace();
             }
           }
         }
-      } catch (IOException ioe) {
+      } catch (Exception ioe) {
         ioe.printStackTrace();
       } finally {
         IOUtils.closeStream(sequenceFileReader);
@@ -663,6 +706,7 @@ public class ParseCorpus extends Configured implements Tool {
     DistributedCache.addCacheFile(titleIndexPath.toUri(), conf);
 
     conf.setNumMapTasks(numberOfMappers);
+    //conf.setNumMapTasks(1);
     conf.setNumReduceTasks(0);
     conf.setMapperClass(IndexDocumentMapper.class);
 
@@ -672,24 +716,33 @@ public class ParseCorpus extends Configured implements Tool {
     conf.setOutputValueClass(Document.class);
 
     conf.setInputFormat(SequenceFileInputFormat.class);
-    //conf.setOutputFormat(SequenceFileOutputFormat.class);
-    conf.setOutputFormat(NonEmptySequenceFileOutputFormat.class);
+    conf.setOutputFormat(SequenceFileOutputFormat.class);
+    //conf.setOutputFormat(NonEmptySequenceFileOutputFormat.class);
 
     FileInputFormat.setInputPaths(conf, inputDocumentFiles);
     FileOutputFormat.setOutputPath(conf, outputDocumentFiles);
     FileOutputFormat.setCompressOutput(conf, false);
 
     long startTime = System.currentTimeMillis();
-    RunningJob job = JobClient.runJob(conf);
-    sLogger.info("Job Finished in " + (System.currentTimeMillis() - startTime) / 1000.0
-        + " seconds");
-    sLogger.info("Successfully index all the documents at " + outputDocumentFiles);
-
+    JobClient jobclient = new JobClient(conf);
+    RunningJob job = jobclient.submitJob(conf);
+    sLogger.info("Job IndexDoc Tracking: " + job.getTrackingURL());
+    // add by liuweiwei02, for error "the client is stoped!"
+    job.waitForCompletion();
+    
+    if (job.isSuccessful()){
+        sLogger.info("Job Finished in " + (System.currentTimeMillis() - startTime) / 1000.0
+            + " seconds");
+        sLogger.info("Successfully index all the documents at " + outputDocumentFiles);
+    } else {
+        sLogger.info("Job Failed, see: " + job.getTrackingURL());
+    }
+    
     Counters counters = job.getCounters();
-    int collapsedDocuments = (int) counters.findCounter(MyCounter.COLLAPSED_DOCUMENTS).getCounter();
+    int collapsedDocuments = (int) counters.getCounter(MyCounter.COLLAPSED_DOCUMENTS);
     sLogger.info("Total number of collapsed documnts: " + collapsedDocuments);
 
-    int leftOverDocuments = (int) counters.findCounter(MyCounter.LEFT_OVER_DOCUMENTS).getCounter();
+    int leftOverDocuments = (int) counters.getCounter(MyCounter.LEFT_OVER_DOCUMENTS);
     sLogger.info("Total number of left-over documents: " + leftOverDocuments);
 
     return outputDocumentFiles;

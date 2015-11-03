@@ -111,6 +111,7 @@ public class VariationalInference extends Configured implements Tool {
     // delete the overall output path
     Path outputDir = new Path(outputPath);
     if (!resume && fs.exists(outputDir)) {
+      sLogger.info("Now Deleteing outputDir:"+outputDir);
       fs.delete(outputDir, true);
       fs.mkdirs(outputDir);
     }
@@ -127,6 +128,7 @@ public class VariationalInference extends Configured implements Tool {
     Path tempDir = new Path(outputPath + Settings.TEMP + FileMerger.generateRandomString());
 
     // delete the output directory if it exists already
+    sLogger.info("Now Deleteing tempDir 131:"+tempDir);
     fs.delete(tempDir, true);
 
     Path alphaDir = null;
@@ -163,7 +165,9 @@ public class VariationalInference extends Configured implements Tool {
           sequenceFileWriter = new SequenceFile.Writer(fs, conf, alphaDir, IntWritable.class,
               DoubleWritable.class);
           exportAlpha(sequenceFileWriter, alphaVector);
-        } finally {
+          IOUtils.closeStream(sequenceFileWriter);
+        } catch(Exception e) {
+           e.printStackTrace(); 
           IOUtils.closeStream(sequenceFileWriter);
         }
       } else {
@@ -243,8 +247,16 @@ public class VariationalInference extends Configured implements Tool {
       conf.setMapOutputValueClass(DoubleWritable.class);
       conf.setOutputKeyClass(IntWritable.class);
       conf.setOutputValueClass(DoubleWritable.class);
+      
+      sLogger.info("Strarting a new Job!");
+      sLogger.info("Input : " + inputDir);
+      sLogger.info("Output : " + tempDir);
+      sLogger.info("Numof Mapper : " + mapperTasks);
+      sLogger.info("Numof Reducer : " + reducerTasks);
 
+      
       FileInputFormat.setInputPaths(conf, inputDir);
+      sLogger.info("TempDir before set as output:"+tempDir);
       FileOutputFormat.setOutputPath(conf, tempDir);
 
       // suppress the empty part files
@@ -253,24 +265,32 @@ public class VariationalInference extends Configured implements Tool {
 
       try {
         long startTime = System.currentTimeMillis();
-        RunningJob job = JobClient.runJob(conf);
-        sLogger.info("Iteration " + (iterationCount + 1) + " finished in "
-            + (System.currentTimeMillis() - startTime) / 1000.0 + " seconds");
+        JobClient jobclient = new JobClient(conf);
+        RunningJob job = jobclient.submitJob(conf);
+        sLogger.info("Job Tracker: " + job.getTrackingURL());
+        job.waitForCompletion();
+        if (job.isSuccessful()){
+            sLogger.info("Success !!! Iteration " + (iterationCount + 1) + " finished in "
+               + (System.currentTimeMillis() - startTime) / 1000.0 + " seconds");
+        } else {
+            sLogger.info("Job Failed!!! see: " + job.getTrackingURL());
+            break;
+        }
 
         Counters counters = job.getCounters();
-        double logLikelihood = -counters.findCounter(ParameterCounter.LOG_LIKELIHOOD).getCounter()
+        double logLikelihood = -counters.getCounter(ParameterCounter.LOG_LIKELIHOOD)
             * 1.0 / Settings.DEFAULT_COUNTER_SCALE;
         sLogger.info("Log likelihood of the model is: " + logLikelihood);
 
-        numberOfDocuments = (int) counters.findCounter(ParameterCounter.TOTAL_DOCS).getCounter();
+        numberOfDocuments = (int) counters.getCounter(ParameterCounter.TOTAL_DOCS);
         sLogger.info("Total number of documents is: " + numberOfDocuments);
-        numberOfTerms = (int) (counters.findCounter(ParameterCounter.TOTAL_TERMS).getCounter() / numberOfTopics);
+        numberOfTerms = (int) (counters.getCounter(ParameterCounter.TOTAL_TERMS) / numberOfTopics);
         sLogger.info("Total number of terms is: " + numberOfTerms);
 
-        double configurationTime = counters.findCounter(ParameterCounter.CONFIG_TIME).getCounter()
+        double configurationTime = counters.getCounter(ParameterCounter.CONFIG_TIME)
             * 1.0 / numberOfDocuments;
         sLogger.info("Average time elapsed for mapper configuration (ms): " + configurationTime);
-        double trainingTime = counters.findCounter(ParameterCounter.TRAINING_TIME).getCounter()
+        double trainingTime = counters.getCounter(ParameterCounter.TRAINING_TIME)
             * 1.0 / numberOfDocuments;
         sLogger.info("Average time elapsed for processing a document (ms): " + trainingTime);
 
@@ -315,10 +335,14 @@ public class VariationalInference extends Configured implements Tool {
             alphaDir = new Path(alphaPath + (iterationCount + 1));
             sequenceFileWriter = new SequenceFile.Writer(fs, conf, alphaDir, IntWritable.class,
                 DoubleWritable.class);
+            // save Alpha vector
             exportAlpha(sequenceFileWriter, alphaVector);
+            IOUtils.closeStream(sequenceFileWriter);
             sLogger.info("Successfully export new alpha vector to file " + alphaDir);
-          } finally {
+          } catch(Exception e) {
+             e.printStackTrace(); 
             // remove all the alpha sufficient statistics
+            sLogger.info("Now Deleteing alphaSufficientStatisticsDir:" + alphaSufficientStatisticsDir);
             fs.deleteOnExit(alphaSufficientStatisticsDir);
 
             IOUtils.closeStream(sequenceFileReader);
@@ -374,6 +398,7 @@ public class VariationalInference extends Configured implements Tool {
 
           if (iterationCount != 0) {
             // remove old gamma and document output
+            sLogger.info("Now Deleteing gammaDir:"+gammaDir);
             fs.delete(gammaDir, true);
           }
         }
@@ -387,8 +412,14 @@ public class VariationalInference extends Configured implements Tool {
         lastLogLikelihood = logLikelihood;
 
         iterationCount++;
-      } finally {
+        if (iterationCount < numberOfIterations){
+            sLogger.info("Now Deleteing tempDir for new job:"+tempDir);
+            fs.delete(tempDir, true);
+        }
+      } catch (Exception e) {
+         e.printStackTrace(); 
         // delete the output directory after job
+        sLogger.info("Now Deleteing tempDir 399:"+tempDir);
         fs.delete(tempDir, true);
       }
     } while (iterationCount < numberOfIterations);
