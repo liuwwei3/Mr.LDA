@@ -1,3 +1,5 @@
+原项目:https://github.com/lintool/Mr.LDA
+改了些bug放在这。
 以下是原版README，代码改动可以grep liuweiwei02
 
 Mr.LDA
@@ -7,6 +9,7 @@ Mr.LDA is an open-source package for flexible, scalable, multilingual topic
 modeling using variational inference in MapReduce. For more details, please consult [this paper](http://www2012.org/proceedings/proceedings/p879.pdf). The latest version of the code can always be found on [GitHub](https://github.com/lintool/Mr.LDA).
 
 Please send any bugs reports or questions to Ke Zhai (kzhai@umd.edu).
+『这些bug我还没反馈给原作者，这里附上我的邮箱：810721065@qq.com』
 
 Getting Started
 ---------------
